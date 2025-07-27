@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>短链接生成器</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; padding: 20px 0; }
+        .container { background-color: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); width: 100%; max-width: 800px; text-align: center; max-height: 90vh; display: flex; flex-direction: column; }
+        h1 { color: #333; margin-bottom: 24px; }
+        .form-container { padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        .input-group { display: flex; margin-bottom: 10px; }
+        #url-input, #expiration-input { flex-grow: 1; padding: 12px 15px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
+        #expiration-input { margin-bottom: 20px; }
+        #submit-btn { padding: 12px 20px; font-size: 16px; font-weight: bold; color: white; background-color: #007bff; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; width: 100%;}
+        #submit-btn:hover { background-color: #0056b3; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 4px; word-wrap: break-word; min-height: 20px; }
+        .success { background-color: #e9f7ef; color: #1e7e34; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        #result a { color: #0056b3; text-decoration: none; font-weight: bold; }
+        .history-container { margin-top: 20px; overflow-y: auto; text-align: left; flex-grow: 1; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px 12px; border-bottom: 1px solid #ddd; word-break: break-all; }
+        th { background-color: #f7f7f7; text-align: left;}
+        td a { color: #007bff; text-decoration: none; }
+        td a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="form-container">
+        <h1>短链接生成器</h1>
+        <form id="shorten-form">
+            <div class="input-group">
+                <input type="url" id="url-input" placeholder="请输入要缩短的网址..." required>
+            </div>
+            <div class="input-group">
+                <input type="number" id="expiration-input" placeholder="有效期(分钟, 默认60, -1为永久)">
+            </div>
+            <button type="submit" id="submit-btn">缩短</button>
+        </form>
+        <div id="result"></div>
+    </div>
+
+    <div class="history-container">
+        <h2>历史记录</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>短链接</th>
+                    <th>原始链接</th>
+                    <th>剩余时间</th>
+                </tr>
+            </thead>
+            <tbody id="history-table-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('shorten-form');
+    const urlInput = document.getElementById('url-input');
+    const expirationInput = document.getElementById('expiration-input');
+    const resultDiv = document.getElementById('result');
+    const historyTableBody = document.getElementById('history-table-body');
+    let linkData = [];
+    let intervalId = null;
+
+    function formatRemainingTime(expiresAtStr) {
+        if (!expiresAtStr) {
+            return '永久有效';
+        }
+        const expiresAt = new Date(expiresAtStr);
+        const now = new Date();
+        const diffSeconds = Math.round((expiresAt - now) / 1000);
+
+        if (diffSeconds <= 0) {
+            return '已过期';
+        }
+
+        const days = Math.floor(diffSeconds / 86400);
+        const hours = Math.floor((diffSeconds % 86400) / 3600);
+        const minutes = Math.floor((diffSeconds % 3600) / 60);
+        const seconds = diffSeconds % 60;
+        
+        if (days > 0) return `${days}天后过期`;
+        if (hours > 0) return `${hours}小时后过期`;
+        if (minutes > 0) return `${minutes}分钟后过期`;
+        return `${seconds}秒后过期`;
+    }
+
+    function updateTimers() {
+        const rows = historyTableBody.getElementsByTagName('tr');
+        for (let i = 0; i < rows.length; i++) {
+            const link = linkData[i];
+            const cell = rows[i].getElementsByTagName('td')[2]; // 第三个单元格
+            if (link && cell) {
+                 cell.textContent = formatRemainingTime(link.expires_at);
+            }
+        }
+    }
+
+    async function loadLinks() {
+        try {
+            const response = await fetch('/api/v1/links');
+            if (!response.ok) throw new Error('无法获取历史记录');
+            linkData = await response.json();
+            
+            historyTableBody.innerHTML = '';
+
+            linkData.forEach(link => {
+                if (link.short_url) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><a href="${link.short_url}" target="_blank">${link.short_url}</a></td>
+                        <td>${link.original_url}</td>
+                        <td>${formatRemainingTime(link.expires_at)}</td>
+                    `;
+                    historyTableBody.appendChild(row);
+                }
+            });
+
+            if (intervalId) clearInterval(intervalId);
+            intervalId = setInterval(updateTimers, 1000); // 每秒更新一次计时器
+
+        } catch (error) {
+            console.error('加载历史记录失败:', error);
+        }
+    }
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const originalUrl = urlInput.value;
+        const expirationValue = expirationInput.value;
+        
+        const payload = { url: originalUrl };
+        if (expirationValue) {
+            payload.expiration_in_minutes = parseInt(expirationValue, 10);
+        }
+
+        resultDiv.textContent = '生成中...';
+        resultDiv.className = '';
+
+        try {
+            const response = await fetch('/api/v1/shorten', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '发生未知错误');
+
+            resultDiv.className = 'success';
+            resultDiv.innerHTML = `生成成功! 短链接: <a href="${data.short_url}" target="_blank">${data.short_url}</a>`;
+            
+            loadLinks(); // 成功后重新加载列表
+
+        } catch (error) {
+            resultDiv.className = 'error';
+            resultDiv.textContent = `错误: ${error.message}`;
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', loadLinks);
+</script>
+
+</body>
+</html>

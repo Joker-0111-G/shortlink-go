@@ -16,14 +16,14 @@ type LinkController struct {
 }
 
 // NewLinkController 是 LinkController 的构造函数，并在此注册路由
-func NewLinkController(e *echo.Echo, linkService service.LinkService) *LinkController {
+func NewLinkController(e *echo.Echo, linkService service.LinkService , rateLimiter echo.MiddlewareFunc) *LinkController {
 	controller := &LinkController{
 		linkService: linkService,
 	}
 
 	// 使用组来管理API版本
 	apiGroup := e.Group("/api/v1")
-	apiGroup.POST("/shorten", controller.Create)
+	apiGroup.POST("/shorten", controller.Create, rateLimiter) // <--- 修改
 	apiGroup.GET("/links", controller.GetAll) // <--- 新增这行路由
 
 	// 重定向路由放在根路径

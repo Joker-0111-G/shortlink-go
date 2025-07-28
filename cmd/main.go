@@ -18,6 +18,8 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	"golang.org/x/time/rate" // <--- 新增导入
 )
 
 func init() {
@@ -62,6 +64,28 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost},
 	}))
 
+	    // IP速率限制配置：每个IP每秒最多1个请求，峰值最多5个请求
+    rateLimiter := middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+        Skipper: middleware.DefaultSkipper,
+        Store: middleware.NewRateLimiterMemoryStoreWithConfig(
+            middleware.RateLimiterMemoryStoreConfig{
+                // 每秒1个请求, 峰值5个
+                Rate:      rate.Limit(1),
+                Burst:     5,
+                ExpiresIn: 3 * time.Minute,
+            },
+        ),
+        IdentifierExtractor: func(ctx echo.Context) (string, error) {
+            return ctx.RealIP(), nil
+        },
+        ErrorHandler: func(context echo.Context, err error) error {
+            return context.JSON(http.StatusForbidden, nil)
+        },
+        DenyHandler: func(context echo.Context, identifier string, err error) error {
+            return context.JSON(http.StatusTooManyRequests, nil)
+        },
+    })
+
 	e.Static("/", "frontend") // 将根URL("/")映射到"frontend"目录
 
 	// --- 5. 依赖注入 (从底层到高层) & 注册路由 ---
@@ -69,7 +93,8 @@ func main() {
 	appURL := viper.GetString("server.app_url")
 	// 注意：构造函数现在需要传入 *gorm.DB
 	linkSvc := service.NewLinkService(linkRepo, rdb, db, appURL) // <--- 修改
-	controller.NewLinkController(e, linkSvc)
+	// 注意：NewLinkController现在需要传入rateLimiter
+    controller.NewLinkController(e, linkSvc, rateLimiter) // <--- 修改这里
 	fmt.Println("Controller and routes initialized.")
 
 	// --- 启动后台清理任务 ---

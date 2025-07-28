@@ -1,16 +1,19 @@
-# 文件路径: configs/config.yaml
+# 文件路径: configs/config.yaml (服务器上的版本)
 
 server:
   port: ":8080"
-  app_url: "http://localhost:8080/"
-  #app_url: "http://192.168.0.6:8080/"
+  # 【重要】修改为你服务器的公网IP地址或你的域名
+  app_url: "http://116.62.241.55/" 
 
 database:
   mysql:
-    dsn: "user:password@tcp(127.0.0.1:3307)/shortlink_db?charset=utf8mb4&parseTime=True&loc=Local"
+    # 【重要】主机名从 127.0.0.1 改为 mysql_db (docker-compose.yml中定义的服务名)
+    # 【重要】使用您在docker-compose.yml中为生产环境设置的强密码
+    dsn: "user:password@tcp(mysql_db:3306)/shortlink_db?charset=utf8mb4&parseTime=True&loc=Local"
 
 cache:
   redis:
-    addr: "localhost:6380"
+    # 【重要】地址从 localhost 改为 redis_cache (docker-compose.yml中定义的服务名)
+    addr: "redis_cache:6379"
     password: ""
     db: 0

@@ -24,8 +24,48 @@ type linkService struct {
 }
 
 // GetOriginalURL implements LinkService.
+// 文件路径: internal/service/link_service.go
+
 func (s *linkService) GetOriginalURL(ctx context.Context, shortCode string) (string, error) {
-	panic("unimplemented")
+    // 1. 优先从 Redis 缓存获取
+    cacheKey := "shortlink:" + shortCode
+    originalURL, err := s.rdb.Get(ctx, cacheKey).Result()
+    if err == nil {
+        // 缓存命中
+        return originalURL, nil
+    }
+
+    if err != redis.Nil {
+        // Redis发生其他错误，打印日志但继续尝试从数据库获取
+        fmt.Printf("Warning: Redis error on get: %v\n", err)
+    }
+
+    // 2. 缓存未命中，从数据库查询
+    // repo.FindByShortCode 已经包含了对“未删除”和“未过期”的检查
+    link, err := s.repo.FindByShortCode(ctx, shortCode)
+    if err != nil {
+        return "", fmt.Errorf("database error: %w", err)
+    }
+    if link == nil {
+        return "", ErrLinkNotFound
+    }
+
+    // 3. 将从数据库查到的结果回填到缓存中
+    // 计算剩余的有效时间作为缓存时间
+    var cacheDuration time.Duration = 24 * time.Hour // 对于永久链接，默认缓存24小时
+    if link.ExpiresAt != nil {
+        cacheDuration = time.Until(*link.ExpiresAt)
+    }
+
+    // 只有在链接仍然有效时才写入缓存
+    if cacheDuration > 0 {
+        err = s.rdb.Set(ctx, cacheKey, link.OriginalURL, cacheDuration).Err()
+        if err != nil {
+            fmt.Printf("Warning: failed to set cache after db fetch for %s: %v\n", shortCode, err)
+        }
+    }
+
+    return link.OriginalURL, nil
 }
 
 // 文件路径: internal/service/link_service.go

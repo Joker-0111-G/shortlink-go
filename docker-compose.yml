@@ -1,19 +1,17 @@
 # 文件路径: docker-compose.yml
 
-version: '3.8'
-
+# 移除了过时的 version 标签
 services:
   mysql_db:
     image: mysql:8.0
     container_name: shortlink_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: 'your_strong_password' # 生产环境请务必使用强密码
+      # 【重要】请为生产环境设置一个非常强的密码
+      MYSQL_ROOT_PASSWORD: 'your_very_strong_password' 
       MYSQL_DATABASE: 'shortlink_db'
       MYSQL_USER: 'user'
       MYSQL_PASSWORD: 'password'
-    ports:
-      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
 
@@ -21,10 +19,23 @@ services:
     image: redis:7.0-alpine
     container_name: shortlink_redis
     restart: always
-    ports:
-      - "6380:6379"
     volumes:
       - redis_data:/data
+
+  # --- 新增我们的Go应用服务 ---
+  app:
+    # build: . 表示从当前目录的 Dockerfile 构建镜像
+    build: .
+    container_name: shortlink_app
+    restart: always
+    ports:
+      # 将服务器的 80 端口映射到容器的 8080 端口
+      # 这样用户就可以直接通过 IP 或域名访问，无需加端口号
+      - "80:8080"
+    # depends_on 确保数据库和Redis先于Go应用启动
+    depends_on:
+      - mysql_db
+      - redis_cache
 
 volumes:
   mysql_data:
